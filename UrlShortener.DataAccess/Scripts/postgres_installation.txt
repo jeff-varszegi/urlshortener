@@ -1,0 +1,126 @@
+﻿/********************************************************************************
+
+                                1. CREATE TABLES
+
+********************************************************************************/
+
+CREATE TABLE urls."UrlShortening" (
+    "UrlShorteningId"       BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    "UrlHashCode"           INT,
+    "Url"                   TEXT
+);
+--
+CREATE INDEX ix_urlshortening_urlhashcode   ON urls."UrlShortening"("UrlHashCode"); 
+
+/* Note: this obviously decreases contention on the main table at the expense of storage size and an extra index; if kept as a strategy, the statistics table(s) could be split easily to a separate database and sharded along similar lines */
+CREATE TABLE urls."UrlShorteningStatistic" (
+    "UrlShorteningId"       BIGINT PRIMARY KEY,
+    "RedirectCount"         BIGINT
+);
+
+
+/********************************************************************************
+
+                                2. CREATE FUNCTIONS
+
+********************************************************************************/
+
+/********************************************************************************
+    Application: URL Shortener
+    Description: Creates a URL shortening and returns its ID
+    Last update: 2021-03-23
+********************************************************************************/
+
+CREATE OR REPLACE FUNCTION urls."CreateUrlShortening" (
+    url                     TEXT,
+    urlHashCode             INT
+) 
+RETURNS BIGINT
+AS $$
+DECLARE
+    urlShorteningId         BIGINT;
+BEGIN
+
+    SELECT us."UrlShorteningId" INTO urlShorteningId
+    FROM (        
+        SELECT "UrlShorteningId", "Url"
+        FROM urls."UrlShortening"
+        WHERE "UrlHashCode" = urlHashCode
+    ) us
+    WHERE us."Url" = url;
+
+    IF (urlShorteningId IS NULL) THEN
+
+        WITH inserted AS (            
+            INSERT INTO urls."UrlShortening" ("UrlHashCode", "Url") VALUES (urlHashCode, url)
+            RETURNING "UrlShorteningId"
+        )
+        --
+        SELECT inserted."UrlShorteningId" 
+        INTO urlShorteningId
+        FROM inserted;
+
+        INSERT INTO urls."UrlShorteningStatistic" VALUES (urlShorteningId, 0);
+
+    END IF;
+
+    RETURN urlShorteningId;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
+/********************************************************************************
+    Application: URL Shortener
+    Description: Finds a URL by ID, and if found increments its redirect count
+    Last update: 2021-03-23
+********************************************************************************/
+
+CREATE OR REPLACE FUNCTION urls."GetRedirectUrl" (
+    urlShorteningId         BIGINT
+) 
+RETURNS TEXT
+AS $$
+
+DECLARE
+    url                     TEXT;
+
+BEGIN
+
+    SELECT "Url" INTO url
+    FROM urls."UrlShortening"
+    WHERE "UrlShorteningId" = urlShorteningId;
+
+    IF (url IS NOT NULL) THEN 
+
+        UPDATE urls."UrlShorteningStatistic" 
+        SET "RedirectCount" = "RedirectCount" + 1
+        WHERE "UrlShorteningId" = urlShorteningId;
+
+    END IF;
+
+    RETURN url;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
+/********************************************************************************
+    Application: URL Shortener
+    Description: Increments the redirect count for a URL by key
+    Last update: 2021-03-23
+********************************************************************************/
+
+CREATE OR REPLACE FUNCTION urls."IncrementRedirectCount" (
+    urlShorteningId         BIGINT
+) 
+RETURNS VOID
+AS $$
+BEGIN
+
+    UPDATE urls."UrlShorteningStatistic" 
+    SET "RedirectCount" = "RedirectCount" + 1
+    WHERE "UrlShorteningId" = urlShorteningId;
+
+END;
+$$ LANGUAGE plpgsql;
