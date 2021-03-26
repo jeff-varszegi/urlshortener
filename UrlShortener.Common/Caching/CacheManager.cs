@@ -26,7 +26,7 @@ namespace UrlShortener.Common.Caching
         {
             if (string.IsNullOrEmpty(key) || object.Equals(data, default)) return; 
 
-            for(int x = _caches.Length; x >= 0; x--) // Set in highest-level/remote cache first to minimize collisions and rework
+            for(int x = _caches.Length - 1; x >= 0; x--) // Set in highest-level/remote cache first to minimize collisions and rework
                 await _caches[x].Set(key, data);
         }
 
