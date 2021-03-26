@@ -8,6 +8,7 @@
         /// <returns>A stable hash code</returns>
         public static int GetStableHashCode(this string s)
         {
+            // Original: https://stackoverflow.com/questions/36845430/persistent-hashcode-for-strings
             unchecked
             {
                 int hash1 = 5381;
